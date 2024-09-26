@@ -1,51 +1,69 @@
 import scrapy
-
+import json
 
 class SitespiderSpider(scrapy.Spider):
     name = "sitespider"
-    allowed_domains = ["www.bhhsamb.com"]
-    start_urls = ["https://www.bhhsamb.com/roster/Agents"]
+    allowed_domains = ["bhhsamb.com"]
 
-   # def parse(self, response):
-    
+    # Start URL for the API
+    api_url = "https://www.bhhsamb.com/CMS/CmsRoster/RosterSearchResults"
+    page_number = 1
+    page_size = 100
+    total_pages = 10  # Update this once you know the total number of pages
 
-    def parse(self, response):
-        # Extract all agent profile links on the page
-        agent_links = response.css('a.agent-link::attr(href)').getall()
-        for link in agent_links:
-            # Follow each agent link
-            yield response.follow(link, self.parse_agent)
-
-        # Follow pagination to scrape all agents across all pages
-        next_page = response.css('a.pagination-next::attr(href)').get()
-        if next_page is not None:
-            yield response.follow(next_page, self.parse)
-
-    def parse_agent(self, response):
-        # Extract the required data fields
-        yield {
-            'name': response.css('h1.agent-name::text').get(),
-            'job_title': response.css('p.agent-title::text').get(),
-            'image_url': response.css('img.agent-photo::attr(src)').get(),
-            'address': response.css('div.agent-address::text').get(),
-            'contact_details': {
-                'Office': response.xpath('//label[contains(text(),"Office")]/following-sibling::span/text()').get(),
-                'Cell': response.xpath('//label[contains(text(),"Cell")]/following-sibling::span/text()').get(),
-                'Fax': response.xpath('//label[contains(text(),"Fax")]/following-sibling::span/text()').get(),
-            },
-            'social_accounts': {
-                'facebook': response.css('a.facebook::attr(href)').get(),
-                'twitter': response.css('a.twitter::attr(href)').get(),
-                'linkedin': response.css('a.linkedin::attr(href)').get(),
-                'youtube': response.css('a.youtube::attr(href)').get(),
-                'pinterest': response.css('a.pinterest::attr(href)').get(),
-                'instagram': response.css('a.instagram::attr(href)').get(),
-            },
-            'offices': response.css('div.agent-office::text').getall(),
-            'languages': response.css('div.agent-languages::text').getall(),
-            'description': response.css('div.agent-description::text').get(),
+    def start_requests(self):
+        # Build the API request for the first page
+        url = f"{self.api_url}?layoutID=963&pageSize={self.page_size}&pageNumber={self.page_number}&sortBy=random"
+        
+        headers = {
+            'Cookie': 'culture=en',
+            'Accept-Language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,ml;q=0.6',
+            'Referer': 'https://www.bhhsamb.com/roster/agents',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'X-Requested-With': 'XMLHttpRequest',
+            'sec-ch-ua': 'Chromium;v=128, Not',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': 'Windows'
         }
 
+        yield scrapy.Request(url=url, headers=headers, callback=self.parse_api_response)
+
+    def parse_api_response(self, response):
+        # Load the JSON response
+        data = json.loads(response.text)
         
+        # Extract each agent’s information from the JSON response
+        for agent in data.get('rosterSearchResults', []):
+            yield {
+                'name': agent.get('name'),
+                'job_title': agent.get('jobTitle'),
+                'image_url': agent.get('imageUrl'),
+                'address': agent.get('officeAddress'),
+                'contact_details': {
+                    'Office': agent.get('officePhone'),
+                    'Cell': agent.get('cellPhone'),
+                    'Fax': agent.get('faxNumber'),
+                },
+                'social_accounts': {
+                    'facebook': agent.get('facebookUrl'),
+                    'twitter': agent.get('twitterUrl'),
+                    'linkedin': agent.get('linkedinUrl'),
+                    'youtube': agent.get('youtubeUrl'),
+                    'pinterest': agent.get('pinterestUrl'),
+                    'instagram': agent.get('instagramUrl'),
+                },
+                'offices': agent.get('officeNames'),
+                'languages': agent.get('languages'),
+                'description': agent.get('agentDescription'),
+            }
+
+        # Handle pagination: check if more pages exist
+        self.page_number += 1
+        if self.page_number <= self.total_pages:
+            # Request the next page
+            next_page_url = f"{self.api_url}?layoutID=963&pageSize={self.page_size}&pageNumber={self.page_number}&sortBy=random"
+            yield scrapy.Request(url=next_page_url, callback=self.parse_api_response)
 
     
